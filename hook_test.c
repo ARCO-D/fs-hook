@@ -27,7 +27,7 @@ static int change_page_range(pte_t *ptep, unsigned long addr, void *data) {
 
 // 用于更改内存页面范围的内存权限
 int change_memory_common(unsigned long start, unsigned long size, pgprot_t new_prot) {
-    
+    printk("hook_test: change_memory_common\n");
     unsigned long init_mm = 0xffff80008153cdc0;
     // 使用 kallsyms_lookup_name 查找 sys_call_table 符号的地址
     // init_mm = kallsyms_lookup_name("init_mm");
@@ -39,13 +39,13 @@ int change_memory_common(unsigned long start, unsigned long size, pgprot_t new_p
     return apply_to_page_range((struct mm_struct *)init_mm, start, size, change_page_range, &data);
 }
 
-int (*set_memory_rw)(unsigned long addr, int numpages) = (int (*)(unsigned long , int))0xffff800080036c68;
+
 
 
 void disable_write_protection(unsigned long addr) {
     int ret = 0;
     pgprot_t pt;
-    pt.pgprot = _PAGE_SHARED;
+    pt.pgprot = PTE_WRITE;
     printk("hook_test: addr=0x%lx\n", addr);
     // printk("hook_test: addr_start=0x%lx\n", addr - (addr % PAGE_SIZE));
     unsigned long addr_start1 = addr + (PAGE_SIZE - (addr % PAGE_SIZE));
@@ -54,12 +54,38 @@ void disable_write_protection(unsigned long addr) {
     printk("hook_test: addr_start2=0x%lx\n", addr_start2);
     printk("hook_test: PAGE_SIZE=0x%lx\n", PAGE_SIZE);
 
-    // change_memory_common(addr - (addr % PAGE_SIZE), PAGE_SIZE, pt);
-
-    set_memory_rw(addr_start1, 2);
-    set_memory_rw(addr_start2, 2);
+    change_memory_common(addr_start1, PAGE_SIZE, pt);
+    // change_memory_common(addr_start2, PAGE_SIZE, pt);
     
-    flush_tlb_all();
+
+    // pgdp = pgd_offset(mm, mkdir_sys_call_addr);
+	// if (pgd_none(READ_ONCE(*pgdp))) {
+	// 	printk(KERN_INFO "failed pgdp");
+	// 	return 0;
+	// }
+	
+	// pudp = pud_offset(pgdp, mkdir_sys_call_addr);
+	// if (pud_none(READ_ONCE(*pudp))) {
+	// 	printk(KERN_INFO "failed pudp");
+	// 	return 0;
+	// }
+	
+	// pmdp = pmd_offset(pudp, mkdir_sys_call_addr);
+	// if (pmd_none(READ_ONCE(*pmdp))) {
+	// 	printk(KERN_INFO "failed pmdp");
+	// 	return 0;
+	// }
+	
+	// ptep = pte_offset_kernel(pmdp, mkdir_sys_call_addr);
+	// if (!pte_valid(READ_ONCE(*ptep))) {
+	// 	printk(KERN_INFO "failed pte");
+	// 	return 0;
+	// }
+    
+
+
+    // flush_tlb_all();
+    __flush_tlb_kernel_pgtable(addr);
 
     if (ret) {
         pr_err("hook_test: Failed to change memory protection\n");
@@ -89,9 +115,8 @@ int hook_test(void)
     printk("hook_test: do hook test\n");
 	struct file *file = filp_open("/home", O_RDONLY, 0);
     printk("hook_test: file name:%s\n", file->f_path.dentry->d_name.name);
-    printk("hook_test: file addr 0x%lx\n", file);
+    // printk("hook_test: file addr 0x%lx\n", file);
     printk("hook_test: file->f_op addr 0x%lx\n", file->f_op);
-    printk("hook_test: file->f_op->iterate_shared addr 0x%lx\n", file->f_op->iterate_shared);
 
     // struct file_operations *f_op = kmalloc(sizeof(struct file_operations*), GFP_KERNEL);
     // printk("hook_test: replace f_op addr 0x%p\n", f_op);
@@ -99,8 +124,8 @@ int hook_test(void)
     
     // origin_iterate_shared = f_op->iterate_shared;
     disable_write_protection((unsigned long)file->f_op);
-    disable_write_protection((unsigned long)file->f_op->iterate_shared);
-    // file->f_op->iterate_shared = replace_iterate_shared;
+    
+    ((struct file_operations*)file->f_op)->iterate_shared = replace_iterate_shared;
     // enable_write_protection((unsigned long)file);
 
     // file->f_op = f_op;
