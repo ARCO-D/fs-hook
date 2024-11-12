@@ -76,9 +76,35 @@ void enable_write_protection(unsigned long addr) {
 typedef int (*iterate_shared) (struct file *, struct dir_context *);
 iterate_shared origin_iterate_shared;
 
+// typedef static bool (*filldir_t) (struct dir_context *ctx, const char *name, int namlen, loff_t offset, u64 ino, unsigned int d_type);
+static filldir_t origin_filldir_t;
+
+int rpflag = 0;
+
+static bool replace_filldir_t(struct dir_context *ctx, const char *name, int namelen, loff_t offset, u64 ino, unsigned int d_type)
+{
+    printk("hook_test: do replace_filldir_t");
+    // printk("---------------------\n");
+    // printk("name:%s\n", name);
+    // printk("namelen:%d\n", namelen);
+    // printk("offset:%lld\n", offset);
+    // printk("ino:%lld\n", ino);
+    // printk("d_type:%d\n", d_type);
+    // printk("---------------------\n");
+
+    return origin_filldir_t(ctx, name, namelen, offset, ino, d_type);
+}
+
 int replace_iterate_shared(struct file *file, struct dir_context *ctx)
 {
+    rpflag = 1;
     printk("hook_test: do hook iterate!\n");
+    
+    origin_filldir_t = ctx->actor;
+
+    ctx->actor = replace_filldir_t;
+    origin_iterate_shared(file, ctx);
+
     return 0;
 }
 
