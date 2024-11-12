@@ -1,5 +1,5 @@
 # fs hook demo
-build on linux-6.6 gcc 7.5
+build on linux-6.6 gcc 7.5, run on arco-qemu/arco-virt
 
 linux6内核不再默认导出kallsyms_lookup_name函数, 且新增了p4d四级页目录项
 
