@@ -9,79 +9,79 @@
 
 // cat /proc/kallsyms |grep sys_init_mm
 
-struct mm_struct *sys_init_mm = 0xffff80008151ce00;
+struct mm_struct *sys_init_mm = (struct mm_struct *) 0xffff80008151ce00;
 
-int get_addr_pudp(unsigned long addr, pud_t *addr_pudp)
+pud_t* get_addr_pudp(unsigned long addr, int* retval)
 {
-    pgd_t *pgdp;
-    p4d_t *p4dp;
-    pud_t *pudp;
+    pgd_t *pgdp = NULL;
+    p4d_t *p4dp = NULL;
+    pud_t *pudp = NULL;
 
     pgdp = pgd_offset(sys_init_mm, addr);
     if (pgd_none(READ_ONCE(*pgdp))) {
         printk(KERN_INFO "test2: failed pgdp");
-        return 1;
+        *retval = 1;
     }
 
     p4dp = p4d_offset(pgdp, addr);
     if (p4d_none(READ_ONCE(*p4dp))) {
         printk(KERN_INFO "test2: failed p4dp");
-        return 2;
+        *retval = 2;
     }
 
     pudp = pud_offset(p4dp, addr);
     if (pud_none(READ_ONCE(*pudp))) {
         printk(KERN_INFO "test2: failed pudp");
-        return 3;
+        *retval = 3;
     }
 
-    addr_pudp = pudp;
-    return 0;
+    *retval = 0;
+    return pudp;
 }
 
-int get_addr_pmdp(unsigned long addr, pmd_t *addr_pmdp)
+pmd_t* get_addr_pmdp(unsigned long addr, int* retval)
 {
-    int ret;
-    pud_t *pudp;
-    pmd_t *pmdp;
+    pud_t *pudp = NULL;
+    pmd_t *pmdp = NULL;
 
-    ret = get_addr_pudp(addr, pudp);
-    if (ret) return ret;
+    *retval = 0;
+    pudp = get_addr_pudp(addr, retval);
+    if (*retval) return pmdp;
+
     pmdp = pmd_offset(pudp, addr);
     if (pmd_none(READ_ONCE(*pmdp))) {
         printk(KERN_INFO "test2: failed pmdp");
-        return 4;
+        *retval = 4;
     }
 
-    addr_pmdp = pmdp;
-    return 0;
+    return pmdp;
 }
 
-int get_addr_ptep(unsigned long addr, pte_t *addr_ptep)
+pte_t* get_addr_ptep(unsigned long addr, int* retval)
 {
-    int ret;
-    pmd_t *pmdp;
-    pte_t *ptep;
+    pmd_t *pmdp = NULL;
+    pte_t *ptep = NULL;
 
-    ret = get_addr_pmdp(addr, pmdp);
-    if (ret) return ret;
+    *retval = 0;
+    pmdp = get_addr_pmdp(addr, retval);
+    if (*retval) return ptep;
+
     ptep = pte_offset_kernel(pmdp, addr);
     if (!pte_valid(READ_ONCE(*ptep))) {
         printk(KERN_INFO "test2: failed pte");
-        return 5;
+        *retval = 5;
     }
 
-    addr_ptep = ptep;
-    return 0;
+    return ptep;
 }
 
 int check_addr_writable(unsigned long addr)
 {
     int ret = 0, rw_situation = 0;
-    pte_t *ptep;
-    pmd_t *pmdp;
+    pte_t *ptep = NULL;
+    pmd_t *pmdp = NULL;
     // check if pmdp writable
-    ret = get_addr_pmdp(addr, pmdp);
+    pmdp = get_addr_pmdp(addr, &ret);
     if (!(pmd_val(*pmdp) & PTE_WRITE)) {
         printk("test2: %lx hasn't set PMD_WRITE\n", addr);
         rw_situation += 4;
@@ -92,7 +92,7 @@ int check_addr_writable(unsigned long addr)
     }
 
     // check if ptep writable
-    ret = get_addr_ptep(addr, ptep);
+    ptep = get_addr_ptep(addr, &ret);
     if (!(ptep->pte & PTE_WRITE)) {
         printk("test2: %lx hasn't set PTE_WRITE\n", addr);
         rw_situation += 1;
@@ -123,7 +123,7 @@ int make_addr_writable(unsigned long addr)
     pmd_t *pmdp;
     pte_t *ptep;
 
-    ret = get_addr_pmdp(addr, pmdp);
+    pmdp = get_addr_pmdp(addr, &ret);
     ret = check_pte_writable(pmd_pte(*pmdp));
     if (ret) {
 //        printk("test2: addr %lx pmd=%lx is rdonly\n", addr, (unsigned long) *pmdp);
@@ -131,7 +131,7 @@ int make_addr_writable(unsigned long addr)
 //        printk("test2: addr %lx pmd set to %lx\n", addr, (unsigned long) *pmdp);
     }
 
-    ret = get_addr_ptep(addr, ptep);
+    ptep = get_addr_ptep(addr, &ret);
     if (ret != 0) {
         printk("test2: make_addr_writable get ptep failed\n");
     }
@@ -158,32 +158,32 @@ void disable_write_protection(unsigned long addr)
     ret = check_addr_writable(addr);
     if (ret) printk("test2: %lx isn't writable\n", addr);
 
-    ret = get_addr_ptep(addr, ptep);
+    ptep = get_addr_ptep(addr, &ret);
     printk("test2: %lx 's ptep is %lx", addr, (unsigned long) ptep);
 //    printk("test2: %lx 's pte  is %lx", addr, (unsigned long) *ptep);
-    ret = check_addr_writable(ptep);
+    ret = check_addr_writable((unsigned long) ptep);
     if (!ret) goto mkaddrw; // if ptep is writable, then change pte
 
-    ret = get_addr_ptep(ptep, ptep2);
-    printk("test2: %lx 's ptep2  is %lx", ptep, (unsigned long) ptep2);
+    ptep2 = get_addr_ptep((unsigned long) ptep, &ret);
+    printk("test2: %lx 's ptep2  is %lx", (unsigned long) ptep, (unsigned long) ptep2);
 //    printk("test2: %lx 's pte2   is %lx", (unsigned long) *ptep, (unsigned long) *ptep2);
-    ret = check_addr_writable(ptep2);
+    ret = check_addr_writable((unsigned long) ptep2);
     if (!ret) goto mkptepw;
 
-    ret = get_addr_ptep(ptep2, ptep3);
-    printk("test2: %lx 's ptep3  is %lx", ptep2, (unsigned long) ptep3);
+    ptep3 = get_addr_ptep((unsigned long) ptep2, &ret);
+    printk("test2: %lx 's ptep3  is %lx", (unsigned long) ptep2, (unsigned long) ptep3);
 //    printk("test2: %lx 's pte3   is %lx", (unsigned long) *ptep2, (unsigned long) *ptep3);
-    ret = check_addr_writable(ptep3);
+    ret = check_addr_writable((unsigned long) ptep3);
     if (!ret) goto mkptep2w;
 
 
     mkptep2w:
     printk("test2: %lx(ptep2) is not writable\n", (unsigned long) ptep2);
-    make_addr_writable(ptep2);
+    make_addr_writable((unsigned long) ptep2);
 
     mkptepw:
     printk("test2: %lx(ptep) is not writable\n", (unsigned long) ptep);
-    make_addr_writable(ptep);
+    make_addr_writable((unsigned long) ptep);
 
     mkaddrw:
     printk("test2: %lx(paddr) is not writable\n", (unsigned long) addr);
@@ -210,10 +210,10 @@ int replace_vfs_getattr(const struct path *path, struct kstat *stat, u32 request
 
 static int test2(void)
 {
-    unsigned long *vfs_getattr = 0xffff8000802dfc04;
+    unsigned long *vfs_getattr = (unsigned long*) 0xffff8000802cc0cc;
 
     // vfs_getattr ffff8000802cc0cc
-    disable_write_protection(*vfs_getattr);
+    disable_write_protection((unsigned long) vfs_getattr);
 
     *vfs_getattr = &replace_vfs_getattr;
 
